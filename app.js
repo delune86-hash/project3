@@ -52,35 +52,34 @@ function transformData(rows, type) {
   return rows;
 }
 
-async function loadSeries(series) {
-  const url = `/api/fred?series_id=${encodeURIComponent(series.id)}&observation_start=2018-01-01`;
-  const response = await fetch(url);
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || `${series.id}: ${response.status}`);
-  const observations = Array.isArray(payload.observations) ? payload.observations : [];
-  const rawRows = observations.map(item => ({
-    date: new Date(`${item.date}T00:00:00`),
-    value: Number(item.value)
-  })).filter(item => Number.isFinite(item.value));
-  const rows = transformData(rawRows, series.transform);
-  if (!rows.length) throw new Error(`${series.id}: empty`);
-  return rows;
-}
-
 async function loadAll() {
   const button = document.querySelector("#refreshButton");
   button.classList.add("loading");
-  document.querySelector("#dataStatus").textContent = "FRED 데이터 동기화 중";
-  const results = await Promise.allSettled(SERIES.map(loadSeries));
+  document.querySelector("#dataStatus").textContent = "배포 데이터 확인 중";
   let liveCount = 0;
-  SERIES.forEach((series, i) => {
-    if (results[i].status === "fulfilled") { state.data[series.id] = results[i].value; liveCount++; }
-    else state.data[series.id] = pseudoHistory(series);
-  });
-  state.live = liveCount > SERIES.length / 2;
-  const now = new Date();
-  document.querySelector("#lastSync").textContent = new Intl.DateTimeFormat("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(now);
-  document.querySelector("#dataStatus").textContent = state.live ? `${liveCount}/${SERIES.length}개 지표 실시간 연결` : "오프라인 샘플 데이터 표시 중";
+  let generatedAt = null;
+  try {
+    const response = await fetch(`./data/fred-data.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`정적 데이터 응답 오류 (${response.status})`);
+    const payload = await response.json();
+    generatedAt = payload.generatedAt ? new Date(payload.generatedAt) : null;
+    SERIES.forEach(series => {
+      const observations = payload.series?.[series.id];
+      const rawRows = Array.isArray(observations) ? observations.map(item => ({
+        date: new Date(`${item.date}T00:00:00`), value: Number(item.value)
+      })).filter(item => Number.isFinite(item.value)) : [];
+      const rows = transformData(rawRows, series.transform);
+      if (rows.length) { state.data[series.id] = rows; liveCount++; }
+      else state.data[series.id] = pseudoHistory(series);
+    });
+  } catch (error) {
+    console.warn("FRED 정적 데이터를 읽지 못해 샘플 데이터를 표시합니다.", error);
+    SERIES.forEach(series => { state.data[series.id] = pseudoHistory(series); });
+  }
+  state.live = liveCount === SERIES.length;
+  const syncTime = generatedAt && !Number.isNaN(generatedAt.getTime()) ? generatedAt : new Date();
+  document.querySelector("#lastSync").textContent = new Intl.DateTimeFormat("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(syncTime);
+  document.querySelector("#dataStatus").textContent = state.live ? `${liveCount}개 지표 · Actions 자동 갱신` : "샘플 데이터 표시 중 · Actions 배포 확인 필요";
   button.classList.remove("loading");
   render();
 }

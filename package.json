@@ -2,12 +2,11 @@
   "name": "macro-lens",
   "version": "1.0.0",
   "private": true,
-  "description": "FRED 공식 API 기반 미국 경제지표 투자 대시보드",
+  "description": "Static FRED macro dashboard for GitHub Pages and Actions",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "fetch-data": "node scripts/fetch-fred-data.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }
