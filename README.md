@@ -1,7 +1,7 @@
 # Macro Lens - FRED Dashboard
 
 GitHub Pages는 정적 파일만 서빙하므로, 브라우저에서 FRED API 키를 직접 쓰지 않습니다.
-대신 GitHub Actions가 주기적으로 FRED API를 호출해서 `data/fred-data.json`을 만들고, GitHub Pages에는 정적 HTML/CSS/JS/JSON만 배포합니다.
+대신 GitHub Actions가 주기적으로 FRED API와 VOO 가격 데이터를 호출해서 `data/fred-data.json`을 만들고, GitHub Pages에는 정적 HTML/CSS/JS/JSON만 배포합니다.
 
 ## 현재 데이터가 샘플로 보이는 경우
 
@@ -59,5 +59,14 @@ python -m http.server 4173
 - `index.html` - 대시보드 화면
 - `styles.css` - 스타일
 - `app.js` - 차트/상관관계/상태 표시 로직
-- `scripts/fetch-fred-data.js` - FRED API 호출 후 JSON 생성
+- `scripts/fetch-fred-data.js` - FRED API와 VOO 가격 데이터 호출 후 JSON 생성
 - `.github/workflows/deploy-pages.yml` - GitHub Actions 배포 워크플로
+
+## VOO와 M2 상관관계
+
+상관관계 섹션 아래에 `VOO 가격과 M2 통화량 상관관계` 그래프가 추가되어 있습니다.
+
+- VOO: Yahoo Finance 일간 조정종가를 월 단위로 정렬
+- M2: FRED `M2SL` 원자료 레벨
+- 계산: 최근 60개월 기준 Pearson 상관계수
+- 차트: 비교를 위해 두 데이터를 표준화한 선 그래프

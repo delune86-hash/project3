@@ -140,6 +140,8 @@ h1 em { font-family: Georgia, serif; font-weight: 400; color: var(--green); }
 .relationship-legend span { display: flex; align-items: center; gap: 6px; }
 .relationship-legend i { width: 13px; height: 2px; background: var(--green); }.relationship-legend span:nth-child(2) i { background: var(--amber); }
 .correlation-note { display: block; margin-top: auto; padding-top: 18px; border-top: 1px solid var(--line); color: #8b938f; font-size: 8px; line-height: 1.6; }
+.voo-m2-panel { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); padding: 26px; }
+.voo-m2-panel .relationship-chart { height: 220px; }
 .method-note { margin: 36px 0 62px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 180px 1fr; gap: 30px; color: #838b87; font-size: 9px; line-height: 1.6; }.method-note p { margin: 0; color: var(--ink); letter-spacing: .14em; font-weight: 700; }
 footer { height: 90px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; font-size: 9px; letter-spacing: .1em; color: #7b8580; } footer a { color: var(--green); font-weight: 700; }
 .empty-state { grid-column: 1/-1; padding: 70px; text-align: center; color: var(--muted); }

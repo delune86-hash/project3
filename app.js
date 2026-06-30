@@ -27,7 +27,7 @@ const SHORT_LABELS = {
   PAYEMS: "비농업 고용", GDPC1: "실질 GDP", BAMLH0A0HYM2: "하이일드", NFCI: "금융여건"
 };
 
-let state = { data: {}, selected: "FEDFUNDS", filter: "all", range: 36, live: false, correlationPair: ["PCEPILFE", "DGS10"] };
+let state = { data: {}, raw: {}, market: {}, selected: "FEDFUNDS", filter: "all", range: 36, live: false, correlationPair: ["PCEPILFE", "DGS10"] };
 
 function pseudoHistory(series, length = 72) {
   const end = FALLBACK[series.id];
@@ -39,6 +39,21 @@ function pseudoHistory(series, length = 72) {
     const trend = (i / (length - 1) - 1) * amplitude * .55;
     const value = i === length - 1 ? end : end + wave + trend;
     const date = new Date(now); date.setMonth(now.getMonth() - (length - 1 - i));
+    return { date, value };
+  });
+}
+
+function pseudoMarketHistory(symbol, length = 72) {
+  const end = symbol === "VOO" ? 520 : 100;
+  const seed = [...symbol].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const now = new Date();
+  return Array.from({ length }, (_, i) => {
+    const progress = i / Math.max(1, length - 1);
+    const wave = Math.sin((i + seed) * .26) * end * .035;
+    const trend = (progress - .5) * end * .28;
+    const value = end + trend + wave;
+    const date = new Date(now);
+    date.setMonth(now.getMonth() - (length - 1 - i));
     return { date, value };
   });
 }
@@ -68,13 +83,19 @@ async function loadAll() {
       const rawRows = Array.isArray(observations) ? observations.map(item => ({
         date: new Date(`${item.date}T00:00:00`), value: Number(item.value)
       })).filter(item => Number.isFinite(item.value)) : [];
+      state.raw[series.id] = rawRows;
       const rows = transformData(rawRows, series.transform);
       if (rows.length) { state.data[series.id] = rows; liveCount++; }
       else state.data[series.id] = pseudoHistory(series);
     });
+    const vooRows = Array.isArray(payload.market?.VOO) ? payload.market.VOO.map(item => ({
+      date: new Date(`${item.date}T00:00:00`), value: Number(item.value)
+    })).filter(item => Number.isFinite(item.value)) : [];
+    state.market.VOO = vooRows.length ? vooRows : pseudoMarketHistory("VOO");
   } catch (error) {
     console.warn("FRED 정적 데이터를 읽지 못해 샘플 데이터를 표시합니다.", error);
-    SERIES.forEach(series => { state.data[series.id] = pseudoHistory(series); });
+    SERIES.forEach(series => { state.data[series.id] = pseudoHistory(series); state.raw[series.id] = state.data[series.id]; });
+    state.market.VOO = pseudoMarketHistory("VOO");
   }
   state.live = liveCount === SERIES.length;
   const syncTime = generatedAt && !Number.isNaN(generatedAt.getTime()) ? generatedAt : new Date();
@@ -275,11 +296,62 @@ function relationshipChart(a, b) {
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="선택한 두 지표의 표준화 추이"><line class="grid-line" x1="${padX}" x2="${W-padX}" y1="${zeroY}" y2="${zeroY}"/><polyline class="relation-line-a" points="${makePoints(a)}"/><polyline class="relation-line-b" points="${makePoints(b)}"/></svg>`;
 }
 
-function render() { renderCards(); renderDetail(); renderMacroSignal(); renderCorrelation(); }
+function monthlyCarryForward(rows, months) {
+  const observations = new Map();
+  rows.forEach(row => observations.set(monthKey(row.date), row.value));
+  let lastValue = null;
+  const first = new Date(`${months[0]}-01T00:00:00`);
+  first.setMonth(first.getMonth() - 12);
+  const last = new Date(`${months.at(-1)}-01T00:00:00`);
+  const values = new Map();
+  for (let cursor = new Date(first); cursor <= last; cursor.setMonth(cursor.getMonth() + 1)) {
+    const key = monthKey(cursor);
+    if (observations.has(key)) lastValue = observations.get(key);
+    if (months.includes(key)) values.set(key, lastValue);
+  }
+  return values;
+}
+
+function vooM2Dataset() {
+  const vooRows = state.market.VOO || pseudoMarketHistory("VOO");
+  const m2Rows = state.raw.M2SL?.length ? state.raw.M2SL : (state.data.M2SL || pseudoHistory(SERIES.find(s => s.id === "M2SL")));
+  const latestCommon = new Date(Math.min(vooRows.at(-1).date.getTime(), m2Rows.at(-1).date.getTime()));
+  latestCommon.setDate(1);
+  const months = Array.from({ length: 60 }, (_, index) => {
+    const date = new Date(latestCommon);
+    date.setMonth(latestCommon.getMonth() - (59 - index));
+    return monthKey(date);
+  });
+  const vooByMonth = monthlyCarryForward(vooRows, months);
+  const m2ByMonth = monthlyCarryForward(m2Rows, months);
+  const pairs = months.map(month => ({ month, voo: vooByMonth.get(month), m2: m2ByMonth.get(month) }))
+    .filter(item => Number.isFinite(item.voo) && Number.isFinite(item.m2));
+  return {
+    months: pairs.map(item => item.month),
+    voo: pairs.map(item => item.voo),
+    m2: pairs.map(item => item.m2)
+  };
+}
+
+function renderVooM2Correlation() {
+  const chart = document.querySelector("#vooM2Chart");
+  if (!chart) return;
+  const dataset = vooM2Dataset();
+  const score = pearson(dataset.voo, dataset.m2) ?? 0;
+  document.querySelector("#vooM2Score").textContent = `${score >= 0 ? "+" : ""}${score.toFixed(2)}`;
+  const lastVoo = dataset.voo.at(-1);
+  const lastM2 = dataset.m2.at(-1);
+  document.querySelector("#vooM2Copy").textContent =
+    `최근 ${dataset.voo.length}개월 월말 기준 VOO 가격과 M2 통화량 레벨의 Pearson 상관계수입니다. 최신 VOO $${lastVoo?.toFixed(2) ?? "-"}, M2 ${lastM2?.toLocaleString("ko-KR", { maximumFractionDigits: 1 }) ?? "-"}B.`;
+  chart.innerHTML = relationshipChart(normalized(dataset.voo), normalized(dataset.m2));
+}
+
+function render() { renderCards(); renderDetail(); renderMacroSignal(); renderCorrelation(); renderVooM2Correlation(); }
 document.querySelectorAll(".filter").forEach(btn => btn.addEventListener("click", () => { document.querySelectorAll(".filter").forEach(b => b.classList.remove("active")); btn.classList.add("active"); state.filter = btn.dataset.filter; renderCards(); }));
 document.querySelectorAll(".range-tabs button").forEach(btn => btn.addEventListener("click", () => { document.querySelectorAll(".range-tabs button").forEach(b => b.classList.remove("active")); btn.classList.add("active"); state.range = btn.dataset.range; renderDetail(); }));
 document.querySelector("#refreshButton").addEventListener("click", loadAll);
 
-SERIES.forEach(s => state.data[s.id] = pseudoHistory(s));
+SERIES.forEach(s => { state.data[s.id] = pseudoHistory(s); state.raw[s.id] = state.data[s.id]; });
+state.market.VOO = pseudoMarketHistory("VOO");
 render();
 loadAll();
